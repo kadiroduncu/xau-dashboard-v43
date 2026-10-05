@@ -1,0 +1,13 @@
+streamlit
+streamlit-autorefresh
+pandas
+numpy
+requests
+google-genai
+plotly
+scipy
+hmmlearn
+scikit-learn
+yfinance
+arch
+pytrends
