@@ -59,7 +59,12 @@ def _time_series(api_key, interval, refresh_bucket):
         # carry no additional observation; conflicting candles remain invalid.
         df = df.drop_duplicates(subset=['datetime', 'open', 'high', 'low', 'close'])
         if df['datetime'].duplicated().any():
-            return None, 'Sağlayıcı aynı zaman için farklı OHLC değerleri döndürdü'
+            ambiguous = df.loc[df['datetime'].duplicated(keep=False), 'datetime'].max()
+            # A contiguous suffix after the last ambiguous candle is usable
+            # without picking a price or bridging a hole in the history.
+            recent = df.loc[df['datetime'] > ambiguous].sort_values('datetime').reset_index(drop=True)
+            message = f'Sağlayıcı {ambiguous.isoformat()} için farklı OHLC değerleri döndürdü; sonrasındaki doğrulanmış mum sayısı: {len(recent)}'
+            return (recent if len(recent) else None), message
         return df.sort_values('datetime').reset_index(drop=True), None
     except requests.Timeout:
         return None, 'Twelve Data bağlantısı zaman aşımına uğradı'
