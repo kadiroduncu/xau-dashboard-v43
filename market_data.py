@@ -55,8 +55,11 @@ def _time_series(api_key, interval, refresh_bucket):
         if not ((df['low'] <= df[['open','close']].min(axis=1)) &
                 (df['high'] >= df[['open','close']].max(axis=1))).all():
             return None, 'Sağlayıcı OHLC sıralaması tutarsız: açılış/kapanış high-low dışında'
+        # Some provider pages repeat the same daily candle. Identical OHLC rows
+        # carry no additional observation; conflicting candles remain invalid.
+        df = df.drop_duplicates(subset=['datetime', 'open', 'high', 'low', 'close'])
         if df['datetime'].duplicated().any():
-            return None, 'Sağlayıcı aynı zaman için birden fazla mum döndürdü'
+            return None, 'Sağlayıcı aynı zaman için farklı OHLC değerleri döndürdü'
         return df.sort_values('datetime').reset_index(drop=True), None
     except requests.Timeout:
         return None, 'Twelve Data bağlantısı zaman aşımına uğradı'
