@@ -11,7 +11,8 @@ import streamlit as st
 
 
 SIZES = {'1day': 500, '1h': 200, '4h': 10, '1min': 100, '5min': 320}
-REFRESH_SECONDS = json.loads(Path(__file__).with_name('feed_config.json').read_text()).get(
+FEED_CONFIG = json.loads(Path(__file__).with_name('feed_config.json').read_text())
+REFRESH_SECONDS = FEED_CONFIG.get(
     'time_series_cache_seconds', {'1day': 3600, '1h': 1800, '4h': 7200, '1min': 60, '5min': 60})
 
 
@@ -64,6 +65,18 @@ def _time_series(api_key, interval, refresh_bucket):
             # without picking a price or bridging a hole in the history.
             recent = df.loc[df['datetime'] > ambiguous].sort_values('datetime').reset_index(drop=True)
             message = f'Sağlayıcı {ambiguous.isoformat()} için farklı OHLC değerleri döndürdü; sonrasındaki doğrulanmış mum sayısı: {len(recent)}'
+            if interval == '1day' and len(recent) < FEED_CONFIG.get('daily_min_history', 22):
+                # Daily context may use a recent, completed historical segment.
+                # Never join across a conflicting day, and disclose its end date.
+                conflicts = sorted(df.loc[df['datetime'].duplicated(keep=False), 'datetime'].unique())
+                cutoff = pd.Timestamp.now(tz='UTC').tz_localize(None) - pd.Timedelta(days=FEED_CONFIG.get('daily_max_age_days', 5))
+                for index in range(len(conflicts)-1, -1, -1):
+                    segment = df.loc[df['datetime'] < conflicts[index]]
+                    if index:
+                        segment = segment.loc[segment['datetime'] > conflicts[index-1]]
+                    segment = segment.sort_values('datetime').reset_index(drop=True)
+                    if len(segment) >= FEED_CONFIG.get('daily_min_history', 22) and segment['datetime'].iloc[-1] >= cutoff:
+                        return segment, message + f". Günlük analizde kullanılan son tutarlı dönem: {segment['datetime'].iloc[-1].date()} ({len(segment)} mum); sonraki kayıtlar analize katılmadı."
             return (recent if len(recent) else None), message
         return df.sort_values('datetime').reset_index(drop=True), None
     except requests.Timeout:

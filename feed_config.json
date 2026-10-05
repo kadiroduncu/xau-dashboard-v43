@@ -1,5 +1,7 @@
 {
   "cot_max_age_days": 14,
   "gvz_max_age_days": 5,
+  "daily_min_history": 22,
+  "daily_max_age_days": 5,
   "time_series_cache_seconds": {"1day": 3600, "1h": 1800, "4h": 7200, "1min": 60, "5min": 60}
 }
