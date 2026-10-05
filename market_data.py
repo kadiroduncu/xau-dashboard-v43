@@ -45,19 +45,25 @@ def _time_series(api_key, interval, refresh_bucket):
         if getattr(response, 'status_code', 200) != 200 or not isinstance(payload, dict) or not payload.get('values'):
             return None, provider_error(payload, getattr(response, 'status_code', 200))
         df = pd.DataFrame(payload['values'])
-        df['datetime'] = pd.to_datetime(df['datetime'], utc=True).dt.tz_localize(None)
+        df['datetime'] = pd.to_datetime(df['datetime'], utc=True, format='mixed').dt.tz_localize(None)
+        if df['datetime'].isna().any():
+            return None, 'Sağlayıcı mum zamanını boş döndürdü'
         for name in ('open', 'high', 'low', 'close'):
             df[name] = pd.to_numeric(df[name], errors='raise')
             if not df[name].map(lambda v: math.isfinite(v) and v > 0).all():
-                raise ValueError('invalid OHLC')
+                return None, 'Sağlayıcı sıfır, negatif veya sonlu olmayan mum fiyatı döndürdü'
         if not ((df['low'] <= df[['open','close']].min(axis=1)) &
                 (df['high'] >= df[['open','close']].max(axis=1))).all():
-            raise ValueError('invalid OHLC')
+            return None, 'Sağlayıcı OHLC sıralaması tutarsız: açılış/kapanış high-low dışında'
         if df['datetime'].duplicated().any():
-            raise ValueError('duplicate OHLC')
+            return None, 'Sağlayıcı aynı zaman için birden fazla mum döndürdü'
         return df.sort_values('datetime').reset_index(drop=True), None
-    except Exception:
-        return None, 'Veri bağlantısı zaman aşımı veya geçersiz OHLC yanıtı'
+    except requests.Timeout:
+        return None, 'Twelve Data bağlantısı zaman aşımına uğradı'
+    except requests.RequestException:
+        return None, 'Twelve Data ağ bağlantısı kurulamadı'
+    except (ValueError, TypeError, KeyError):
+        return None, 'Sağlayıcının zaman/fiyat biçimi geçersiz veya zorunlu alan eksik'
 
 
 def closed_bars(df, minutes, now=None):
