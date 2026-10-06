@@ -220,3 +220,14 @@ a chart candidate never enables an order or paper entry. Repeated derivative con
 messages are condensed in the summary only. Full diagnostics remain in the risk panel.
 62 local tests passed. Public standalone tests: `python -m unittest test_analysis_mode -v`
 (requires the existing `test_logging_repair.py` from PR #2).
+
+## Data capability audit and daily macro context
+
+The data-sources expander now fetches dated DGS2/DGS10/DTWEXBGS observations with the
+existing FRED key. These are labelled daily; the broad dollar index is explicitly not DXY.
+A fresh keyless Gold-API.com XAU/USD spot price is an independent reference only, never
+an executable quote or silent replacement for Twelve Data candles.
+A manual bounded Twelve Data audit runs on the same Streamlit host as the application
+and reports quota fields, XAU quote field coverage and DXY/US2Y/US10Y symbol-search results.
+It never exposes keys or raw error bodies, purchases a subscription or clears a risk veto.
+68 local tests passed. Public standalone regression: `python -m unittest test_data_access -v`.
