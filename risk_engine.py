@@ -108,6 +108,13 @@ def news_reasons(calendar, now, normalized, c):
     for event in calendar['events']:
         if event.get('country') != 'US' or not any(k in str(event.get('event', '')).lower() for k in keys):
             continue
+        if event.get('time_precision') == 'date':
+            window_start, window_end = timestamp(event['window_start']), timestamp(event['window_end'])
+            if window_end <= window_start:
+                raise ValueError('Invalid date-only event window')
+            if window_start-timedelta(minutes=c['news_before_minutes']) <= now <= window_end+timedelta(minutes=c['post_news_watch_minutes']):
+                reasons.append('NEWS_TIME_UNKNOWN:' + str(event['event']))
+            continue
         when = timestamp(event['time'])
         elapsed = (now-when).total_seconds()/60
         if -c['news_before_minutes'] <= elapsed <= c['news_after_minutes']:

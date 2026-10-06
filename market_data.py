@@ -135,7 +135,7 @@ def gvz_history():
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def economic_calendar(api_key):
+def economic_calendar(api_key, fred_key=None):
     now = datetime.now(timezone.utc)
     start = (now-timedelta(days=1)).date().isoformat()
     end = (now+timedelta(days=2)).date().isoformat()
@@ -145,8 +145,8 @@ def economic_calendar(api_key):
         response = requests.get('https://finnhub.io/api/v1/calendar/economic',
             params={'token': api_key, 'from': start, 'to': end}, timeout=15)
         data = response.json()
-        if not isinstance(data, dict) or not isinstance(data.get('economicCalendar'), list):
-            return result, provider_error(data, getattr(response, 'status_code', 200))
+        if getattr(response, 'status_code', 200) != 200 or not isinstance(data, dict) or not isinstance(data.get('economicCalendar'), list):
+            raise ValueError('Calendar unavailable')
         events = []
         for event in data['economicCalendar']:
             if event.get('country') != 'US':
@@ -155,7 +155,10 @@ def economic_calendar(api_key):
             if pd.isna(when):
                 raise ValueError('event time missing')
             events.append({**event, 'time': when.isoformat()})
-        result.update(complete=True, events=events)
+        result.update(complete=True, events=events, source='Finnhub', scope='US economic calendar')
         return result, None
     except Exception:
-        return result, 'Ekonomik takvim erişimi veya zaman bilgisi geçersiz'
+        from official_calendar import official_calendar
+        fallback, error = official_calendar(fred_key, now)
+        fallback['fallback_reason'] = 'Finnhub takvim erişimi doğrulanamadı; resmî kaynaklar kullanılıyor.'
+        return fallback, error

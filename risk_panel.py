@@ -71,6 +71,7 @@ def explain(reason):
         'INVALID_M1_DATA': 'M1 mumları eksik, eski veya kesintili',
         'INVALID_M5_DATA': 'M5 mumları eksik, eski veya kesintili',
         'INVALID_CALENDAR': 'Doğrulanmış haber takvimi gerekli',
+        'NEWS_TIME_UNKNOWN': 'Haber günü: kesin saat yok, tüm gün blok',
         'CALENDAR_INCOMPLETE': 'Haber takvimi erişimi doğrulanamadı',
         'INVALID_SETUP_LEVELS': 'Yön ve destek/direnç adayı değerlendirilemiyor',
         'DIRECTION_NOT_ALLOWED': 'Mevcut yön kapısından geçen aday yok',
@@ -137,7 +138,7 @@ def run_risk_panel(legacy, local_data=None):
                     'level_state': 'UNKNOWN', 'room_to_tp': None, 'as_of': now.isoformat(),
                     'config_hash': config_hash(c)}
     st.subheader('v43 — Risk / Setup Gate (paper only)')
-    st.caption('Fiyat/mum: Twelve Data · Haber/takvim: Finnhub · Makro: FRED · DXY tarihsel karşılaştırması: Yahoo Finance. Mevcut anahtarlar kullanılır.')
+    st.caption('Fiyat/mum: Twelve Data · Haber: Finnhub · Takvim: Finnhub veya resmî kaynaklar · Makro: FRED · DXY tarihsel karşılaştırması: Yahoo Finance. Mevcut anahtarlar kullanılır.')
     st.write('**Mevcut yön filtresi:** ' + (', '.join(legacy.get('allowed_sides', [])) or 'İzinli yön yok') +
              ' · **v42 filtre sonucu:** ' + ('Koşullar geçti' if legacy.get('tradeable') else 'Bekle / bloklu') +
              ' · v43 işlem onayı aşağıdaki kontrollerin tamamını gerektirir.')
@@ -148,6 +149,10 @@ def run_risk_panel(legacy, local_data=None):
     columns[0].metric('Tail Risk (sezgisel)', 'Hesaplanamıyor' if unavailable else f"{decision['tail_score']}/100", 'Kontroller tamamlanmadı' if unavailable else decision['tail_label'])
     columns[1].metric('Trade Quality', f"{decision['quality_score']}/12", 'Kısmi değerlendirme' if unavailable else decision['quality_grade'])
     columns[2].metric('Acceptance / Rejection', decision['level_state'])
+    if snapshot.get('calendar'):
+        st.caption('Takvim kaynağı: ' + snapshot['calendar'].get('source', 'Haricî snapshot'))
+        if snapshot['calendar'].get('note'):
+            st.caption(snapshot['calendar']['note'])
     st.caption('Eşikler başlangıç ayarlarıdır; kalibre edilmiş olasılık veya kârlılık kanıtı değildir.')
     measures = decision.get('measurements', {})
     observed = st.columns(2)
@@ -179,7 +184,7 @@ def run_risk_panel(legacy, local_data=None):
         for interval, message in (local_data or {}).get('errors', {}).items():
             st.warning(f'Twelve Data {interval}: {message}')
         if (local_data or {}).get('calendar_error'):
-            st.warning('Finnhub takvim: '+local_data['calendar_error'])
+            st.warning('Takvim: '+local_data['calendar_error'])
         if snapshot.get('side'):
             st.caption(f"İncelenen aday: {snapshot['side']} · yapı seviyesi {snapshot['setup_level']:.2f} · işlem onayı değildir")
         if decision.get('room_to_tp') is not None:
