@@ -34,10 +34,10 @@ import json
 from probability import forecast_inputs
 from risk_panel import run_risk_panel, explain
 from risk_engine import candidate_approved
-from market_data import time_series, economic_calendar
+from market_data import time_series, economic_calendar, FEED_CONFIG
 
 st.set_page_config(page_title="XAU v43", layout="wide", page_icon="🥇")
-st_autorefresh(interval=420000, key="auto_refresh")
+st_autorefresh(interval=FEED_CONFIG.get("dashboard_refresh_seconds", 60)*1000, key="auto_refresh")
 
 TD_KEY = st.secrets["TWELVEDATA_KEY"]
 FH_KEY = st.secrets["FINNHUB_KEY"]
@@ -1447,8 +1447,7 @@ with _master_banner.container():
     _execution_reasons = compact_execution_reasons(_mg_hard)
     if not _mg_tradeable:
         st.warning('**MASTER GATE — TRADE BLOKLU / İŞLEM ONAYI YOK** · ' +
-                   ('Spread ve anlık DXY/2Y/10Y kontrolleri tamamlanamadı. ' if not _v43_result.get('data_complete') else '') +
-                   'Grafik analizinden ayrı değerlendirilir.')
+                   (' · '.join(explain(r) for r in _execution_reasons[:3]) or 'Setup koşulları bekleniyor.'))
     else:
         st.success('**MASTER GATE — yalnız paper adayı onaylandı**')
     with st.expander('İşlem onayı: eksik veriler ve tüm engeller', expanded=False):

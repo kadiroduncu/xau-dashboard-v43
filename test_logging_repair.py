@@ -74,7 +74,7 @@ from risk_panel import run_risk_panel
 run_risk_panel(dict(tradeable=True,allowed_sides=['SHORT'],channels={},obstacles=[np.float64(4101.)]),
     dict(sides=['SHORT'],price=4100.,obstacles=[np.float64(4101.)],regime=np.float64(.4),macro_bias='HEADWIND'))
 '''
-        with tempfile.TemporaryDirectory() as temp, patch.dict('os.environ',{'XAU_SETUP_DB':str(Path(temp)/'setups.sqlite')}):
+        with tempfile.TemporaryDirectory() as temp, patch.dict('os.environ',{'XAU_SETUP_DB':str(Path(temp)/'setups.sqlite')}), patch('live_feeds.connected_quote',return_value=(None,None)), patch('live_feeds.connected_macro',return_value=({},None)):
             app=AppTest.from_string(code).run()
             app.run()
             self.assertEqual(len(app.exception),0)
@@ -89,7 +89,7 @@ run_risk_panel(dict(tradeable=True,allowed_sides=['SHORT'],channels={},obstacles
 from risk_panel import run_risk_panel
 run_risk_panel(dict(tradeable=False,allowed_sides=[],channels={},obstacles=[]),{})
 '''
-        with patch('risk_panel.SetupStore',side_effect=OSError('test storage failure')):
+        with patch('risk_panel.SetupStore',side_effect=OSError('test storage failure')), patch('live_feeds.connected_quote',return_value=(None,None)), patch('live_feeds.connected_macro',return_value=({},None)):
             app=AppTest.from_string(code).run()
             self.assertEqual(len(app.exception),0)
             self.assertTrue(any('Setup kaydı başarısız (OSError)' in e.value for e in app.warning))

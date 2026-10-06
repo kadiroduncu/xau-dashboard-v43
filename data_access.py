@@ -102,7 +102,7 @@ def render_data_access(td_key, fred_key):
             st.write(f"Bağımsız altın fiyat kontrolü: {ref['price']:.2f} USD/ons · {ref['observed_at']} · {ref['source']}")
             st.caption('Anahtarsız referans fiyat. Bid/ask ve XM işlem fiyatı değildir; sinyallerin fiyat kaynağı otomatik değiştirilmez.')
         else:st.caption('Bağımsız fiyat kontrolü: güncel veri doğrulanamadı.')
-        st.write('**Tam işlem kontrolü için hâlâ gerekenler:** zaman damgalı XAU bid/ask ve spread geçmişi; aynı zaman aralığına ait anlık DXY, ABD 2Y ve 10Y değişimleri. Günlük veriler ve ETF/futures fiyatları bu alanlara yerleştirilmez.')
+        st.write('**Bağlanan gün içi kaynaklar:** Swissquote XAU/USD referans bid/ask ve TradingView TVC DXY/2Y/10Y. Kaynak saatleri ve geçmiş yeterliliği Risk / Setup Gate tablosunda denetlenir. Başlangıçta spread ve eşzamanlı makro geçmişi toplanır; eski/eksik veri işlem onayı vermez.')
         if st.button('Mevcut Twelve Data erişimini test et'):
             st.session_state['twelve_access_audit']=audit_twelve(td_key)
         if 'twelve_access_audit' in st.session_state:

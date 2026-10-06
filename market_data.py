@@ -29,6 +29,16 @@ def provider_error(payload, status=200):
     return 'Sağlayıcı geçerli veri döndürmedi'
 
 
+def closed_at_fetch(frame, interval, fetched_at=None):
+    """Never let a cached, unfinished candle become final merely because wall time advances."""
+    if interval not in ('1min', '5min'):
+        return frame
+    fetched_at = fetched_at or datetime.now(timezone.utc)
+    cutoff = pd.Timestamp(fetched_at).tz_convert('UTC').tz_localize(None)
+    minutes = 1 if interval == '1min' else 5
+    return frame.loc[frame['datetime'] + pd.Timedelta(minutes=minutes) <= cutoff].copy()
+
+
 def time_series(api_key, interval):
     seconds = REFRESH_SECONDS[interval]
     if not isinstance(seconds, (int, float)) or seconds <= 0:
@@ -56,6 +66,7 @@ def _time_series(api_key, interval, refresh_bucket):
         if not ((df['low'] <= df[['open','close']].min(axis=1)) &
                 (df['high'] >= df[['open','close']].max(axis=1))).all():
             return None, 'Sağlayıcı OHLC sıralaması tutarsız: açılış/kapanış high-low dışında'
+        df = closed_at_fetch(df, interval)
         # Some provider pages repeat the same daily candle. Identical OHLC rows
         # carry no additional observation; conflicting candles remain invalid.
         df = df.drop_duplicates(subset=['datetime', 'open', 'high', 'low', 'close'])
