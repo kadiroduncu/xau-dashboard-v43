@@ -38,9 +38,14 @@ def remote_snapshot(url, token):
 
 
 def local_snapshot(data, now, c):
-    """Connect available observations only; quote/spread and cross markets stay absent."""
+    """Connect observed inputs; unavailable cross markets are never fabricated."""
     snapshot = {'as_of': now.isoformat(), 'm1': closed_bars(data.get('m1_frame'), 1, now),
                 'm5': closed_bars(data.get('m5_frame'), 5, now)}
+    if data.get('quote'):
+        snapshot['quote'] = data['quote']
+    for name in ('dxy', 'yield2', 'yield10'):
+        if data.get(name):
+            snapshot[name] = data[name]
     if data.get('calendar'):
         snapshot['calendar'] = data['calendar']
     levels = data.get('obstacles')
@@ -149,6 +154,17 @@ def compact_execution_reasons(reasons):
     return [r for r in reasons if r not in hidden]
 
 
+@st.fragment(run_every="30s")
+def sample_reference_quotes():
+    """Sample the keyless reference without refetching candles or rerunning other panels."""
+    from live_feeds import connected_quote
+    quote, error = connected_quote()
+    if quote and not error:
+        st.caption(f"Spread izleme: {quote['ask']-quote['bid']:.3f} USD/ons · {quote['observed_at']} · {len(quote['spread_history'])} geçmiş gözlem")
+    elif error:
+        st.caption(error)
+
+
 def run_risk_panel(legacy, local_data=None):
     c = load_config(os.environ.get('XAU_RISK_CONFIG', Path(__file__).with_name('risk_config.json')))
     now = datetime.now(timezone.utc)
@@ -169,7 +185,12 @@ def run_risk_panel(legacy, local_data=None):
             snapshot = {'as_of': now.isoformat()}
             error = 'Snapshot okunamadı, hatalı veya eski'
     else:
-        snapshot = local_snapshot(local_data or {}, now, c)
+        from live_feeds import connected_quote, connected_macro
+        quote, quote_error = connected_quote()
+        macro, macro_error = connected_macro()
+        now = datetime.now(timezone.utc)
+        snapshot = local_snapshot({**(local_data or {}), **macro, 'quote': quote}, now, c)
+        error = ' · '.join(e for e in (quote_error, macro_error) if e) or None
     try:
         decision = evaluate(snapshot, legacy, c)
     except (KeyError, ValueError, TypeError, IndexError):
@@ -178,12 +199,16 @@ def run_risk_panel(legacy, local_data=None):
                     'level_state': 'UNKNOWN', 'room_to_tp': None, 'as_of': now.isoformat(),
                     'config_hash': config_hash(c)}
     st.subheader('v43 — Risk / Setup Gate (paper only)')
-    st.caption('Fiyat/mum: Twelve Data · Haber: Finnhub · Takvim: Finnhub veya resmî kaynaklar · Makro: FRED · DXY tarihsel karşılaştırması: Yahoo Finance. Mevcut anahtarlar kullanılır.')
+    st.caption('Mumlar: Twelve Data · Referans bid/ask: Swissquote · Gün içi DXY/2Y/10Y: TradingView TVC · Günlük makro: FRED · Haber: Finnhub / resmî takvim. Mevcut anahtarlar kullanılır.')
     st.write('**Mevcut yön filtresi:** ' + (', '.join(legacy.get('allowed_sides', [])) or 'İzinli yön yok') +
              ' · **v42 filtre sonucu:** ' + ('Koşullar geçti' if legacy.get('tradeable') else 'Bekle / bloklu') +
              ' · v43 işlem onayı aşağıdaki kontrollerin tamamını gerektirir.')
     if error:
         st.warning(error)
+    if snapshot.get('quote') and snapshot['quote'].get('scope') == 'REFERENCE_PAPER_ONLY':
+        q = snapshot['quote']
+        st.write(f"**Altın referans alış/satış:** {q['bid']:.3f} / {q['ask']:.3f} USD/ons · spread {q['ask']-q['bid']:.3f}")
+        st.caption(f"{q['source']} · {q['observed_at']} · Spread geçmişi: {len(q['spread_history'])}/{c['spread_samples']} gözlem. XM fiyatı değildir; yalnız referans/paper değerlendirmesi.")
     columns = st.columns(3)
     unavailable = not decision.get('data_complete', False)
     columns[0].metric('Tail Risk (sezgisel)', 'Hesaplanamıyor' if unavailable else f"{decision['tail_score']}/100", 'Kontroller tamamlanmadı' if unavailable else decision['tail_label'])
@@ -194,6 +219,8 @@ def run_risk_panel(legacy, local_data=None):
         if snapshot['calendar'].get('note'):
             st.caption(snapshot['calendar']['note'])
     st.caption('Eşikler başlangıç ayarlarıdır; kalibre edilmiş olasılık veya kârlılık kanıtı değildir.')
+    if not path and not url:
+        sample_reference_quotes()
     measures = decision.get('measurements', {})
     observed = st.columns(2)
     for col, key, label in [(observed[0], 'm5_tr_atr', 'M5 aralık / ATR'),
@@ -218,8 +245,8 @@ def run_risk_panel(legacy, local_data=None):
                        (key.upper() in r and r.startswith('INVALID_')) or
                        (key == 'calendar' and r.startswith('CALENDAR_')) or
                        (key == 'quote' and r == 'INVALID_SPREAD_DATA')]
-            rows.append({'Veri': title, 'Durum': 'Eksik' if not present else 'Kontrol başarısız' if related else 'Bağlı',
-                         'Açıklama': ' · '.join(explain(r) for r in related)})
+            rows.append({'Veri': title, 'Durum': 'Eksik' if not present else 'Kontrol başarısız' if related else 'Geçmiş toplanıyor' if key in ('dxy','yield2','yield10') and 'change' not in value else 'Bağlı',
+                         'Açıklama': ' · '.join(explain(r) for r in related), 'Kaynak': value.get('source', '') if isinstance(value, dict) else '', 'Veri zamanı': value.get('observed_at', '') if isinstance(value, dict) else '', 'Değer': value.get('value') if isinstance(value, dict) else None, 'Yaklaşık 5dk değişim': value.get('change') if isinstance(value, dict) else None})
         st.dataframe(rows, hide_index=True, use_container_width=True)
         for interval, message in (local_data or {}).get('errors', {}).items():
             st.warning(f'Twelve Data {interval}: {message}')

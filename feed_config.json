@@ -3,5 +3,24 @@
   "gvz_max_age_days": 5,
   "daily_min_history": 22,
   "daily_max_age_days": 5,
-  "time_series_cache_seconds": {"1day": 3600, "1h": 1800, "4h": 7200, "1min": 60, "5min": 60}
+  "time_series_cache_seconds": {
+    "1day": 3600,
+    "1h": 1800,
+    "4h": 7200,
+    "1min": 60,
+    "5min": 60
+  },
+  "dashboard_refresh_seconds": 60,
+  "reference_quote": {
+    "platform": "AT",
+    "server": "AT",
+    "profile": "standard",
+    "max_age_seconds": 90
+  },
+  "intraday_macro": {
+    "change_period_seconds": 300,
+    "history_minutes": 120,
+    "period_tolerance_seconds": 90,
+    "max_age_seconds": 180
+  }
 }
