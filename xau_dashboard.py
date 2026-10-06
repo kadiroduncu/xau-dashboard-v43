@@ -1437,21 +1437,26 @@ if not _v43_result['tradeable']:
 if _v43_result['tradeable']:
     _mg_sides = [side for side in _mg_sides if side == _v43_result['side']]
 
-# Ust KARAR rozeti = kanal sinyali ile master-gate'in DAHA KOTUMSERI (yanlis yesili onler)
-_rank = {'GREEN': 0, 'YELLOW': 1, 'RED': 2}
-_disp_level = overall if _rank.get(overall, 0) >= _rank.get(_mg_level, 0) else _mg_level
-_karar_headline = ("TRADE BLOKLU" if _mg_level == 'RED'
-                   else "BEKLE / DIKKAT" if _mg_level == 'YELLOW'
-                   else "FADE PENCERESI ACIK")
-_karar_slot.metric("KARAR", f"{emoji_map[_disp_level]} {_disp_level}", _karar_headline)
-_mg_msg = " · ".join(explain(r) for r in _mg_hard + _mg_soft)
-if _mg_level == 'RED':
-    _master_banner.error(f"🚫 **MASTER GATE — TRADE BLOKLU** · {_mg_msg}")
-elif _mg_level == 'YELLOW':
-    _master_banner.warning(f"⏳ **MASTER GATE — BEKLE/DIKKAT** · {_mg_msg or 'kosullar tam degil'}"
-                           + (f" · izinli yon: {', '.join(_mg_sides)}" if _mg_sides else ""))
-else:
-    _master_banner.success(f"✅ **MASTER GATE — FADE UYGUN** · izinli yon: {', '.join(_mg_sides)}")
+# Chart analysis is useful with existing candle feeds. Execution gate remains strict.
+from risk_panel import compact_execution_reasons
+_analysis = _v43_result.get('analysis', {'status':'VERİ EKSİK','side':None,'reasons':['Analiz katmanı yüklenemedi']})
+_karar_slot.metric("ANALİZ", _analysis['side'] or 'YÖN YOK', _analysis['status'])
+with _master_banner.container():
+    st.info('**GRAFİK ANALİZİ — ' + _analysis['status'] + '** · Yön: ' + (_analysis['side'] or 'belirlenmedi') +
+            ' · ' + (' · '.join(explain(r) for r in _analysis['reasons']) or 'Mevcut mum, seviye ve haber kontrollerinde engel yok; işlem onayı değildir.'))
+    _execution_reasons = compact_execution_reasons(_mg_hard)
+    if not _mg_tradeable:
+        st.warning('**MASTER GATE — TRADE BLOKLU / İŞLEM ONAYI YOK** · ' +
+                   ('Spread ve anlık DXY/2Y/10Y kontrolleri tamamlanamadı. ' if not _v43_result.get('data_complete') else '') +
+                   'Grafik analizinden ayrı değerlendirilir.')
+    else:
+        st.success('**MASTER GATE — yalnız paper adayı onaylandı**')
+    with st.expander('İşlem onayı: eksik veriler ve tüm engeller', expanded=False):
+        for _reason in _execution_reasons:
+            st.write('• ' + explain(_reason))
+        for _note in _mg_soft:
+            st.caption(_note)
+    st.caption('JUMP/COT/GVZ/NEWS yeşil olması, fiyat-spread ve çapraz piyasa kontrollerinin tamamlandığı anlamına gelmez.')
 
 # Detail expander - HER haberin LLM analizini goster (seffaflik)
 if _gold_impacts:
