@@ -23,7 +23,7 @@ from streamlit_autorefresh import st_autorefresh
 import pandas as pd
 import numpy as np
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 from camarilla import camarilla_levels, trade_signal, confluence_signal
 from news import fetch_news, fetch_calendar
 from ai_sentiment import make_client, analyze, aggregate_sentiment
@@ -1129,9 +1129,14 @@ st.title(f"🥇 XAU/USD Dashboard v43 — ${price:.2f}")
 st.caption(f"Update: {datetime.now().strftime('%H:%M:%S')}")
 
 news, analyses, agg = get_news_and_sentiment()
-_calendar_snapshot, _calendar_error = economic_calendar(FH_KEY)
+_calendar_snapshot, _calendar_error = economic_calendar(FH_KEY, FRED_KEY)
 calendar = _calendar_snapshot["events"]
-news_sig = news_channel(calendar, agg)
+from official_calendar import legacy_events
+news_sig = news_channel(legacy_events(calendar), agg)
+from risk_engine import news_reasons as _calendar_reasons, load_config as _calendar_config
+_current_news_reasons = _calendar_reasons(_calendar_snapshot, datetime.now(timezone.utc), False, _calendar_config())
+if any(r.startswith('NEWS_TIME_UNKNOWN:') for r in _current_news_reasons):
+    news_sig = ('RED', 'Haber saati doğrulanmadı: gün boyu temkinli blok')
 if _calendar_error:
     news_sig = ('RED', 'Takvim: ' + _calendar_error)
 
@@ -1919,9 +1924,14 @@ with left:
 
 with right:
     st.subheader("📅 Takvim")
+    st.caption('Kaynak: ' + _calendar_snapshot.get('source', 'Doğrulanamadı'))
+    st.caption(_calendar_snapshot.get('scope', '') + ' · Saatler UTC')
+    if _calendar_snapshot.get('note'):
+        st.caption(_calendar_snapshot['note'])
     if calendar:
         cal_df = pd.DataFrame([{
-            'Saat': e.get('time', '?')[11:16],
+            'Tarih': e.get('time', '?')[:10],
+            'Saat (UTC)': 'Saat bilinmiyor' if e.get('time_precision') == 'date' else e.get('time', '?')[11:16],
             'Olay': e.get('event', '?')[:30],
             '!': '🔴' if e.get('impact') == 'high' else '🟡'
         } for e in calendar[:10]])
