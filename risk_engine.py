@@ -204,37 +204,47 @@ def evaluate(snapshot, legacy, c=None):
             reasons.append('CROSS_MARKET_SHOCK')
     except (KeyError, TypeError, ValueError):
         reasons.append('INVALID_CROSS_MARKET')
+    levels_valid = False
+    room_checked = False
     try:
         level = number(snapshot['setup_level'])
+        levels = snapshot['levels']
+        if levels.get('complete') is not True or level <= 0 or side not in ('LONG', 'SHORT'):
+            raise ValueError('incomplete setup')
+        all_levels = [number(v) for v in levels['prices']]
+        if any(v <= 0 for v in all_levels):
+            raise ValueError('invalid level')
         if legacy.get('obstacles') is None:
             reasons.append('LEGACY_LEVELS_UNAVAILABLE')
-        levels = snapshot['levels']
-        if levels.get('complete') is not True:
-            raise ValueError('incomplete obstacle map')
-        if m5 and side in ('LONG', 'SHORT') and level > 0:
+        else:
+            all_levels += [number(v) for v in legacy['obstacles']]
+            if any(v <= 0 for v in all_levels):
+                raise ValueError('invalid legacy level')
+            levels_valid = True
+        if m5:
             state = level_state(m5, side, level, c)
             if state == 'ACCEPTANCE':
                 reasons.append('ACCEPTANCE')
             elif state != 'REJECTION':
                 reasons.append('REJECTION_NOT_CONFIRMED')
-        entry = number(snapshot['quote']['ask' if side == 'LONG' else 'bid'])
-        sign = 1 if side == 'LONG' else -1
-        all_levels = list(levels['prices']) + list(legacy.get('obstacles') or [])
-        distances = [sign*(number(v)-entry) for v in all_levels]
-        if any(number(v) <= 0 for v in levels['prices']) or level <= 0:
-            raise ValueError('invalid level')
-        ahead = [v for v in distances if v >= 0]
-        room = min(ahead) if ahead else None
-        if room is not None and room < c['tp_distance'] + c['room_buffer']:
-            reasons.append('ROOM_TO_TP')
-        if m5:
-            state = level_state(m5, side, level, c)
-        if state == 'ACCEPTANCE':
-            reasons.append('ACCEPTANCE')
-        elif state != 'REJECTION':
-            reasons.append('REJECTION_NOT_CONFIRMED')
     except (KeyError, TypeError, ValueError):
         reasons.append('INVALID_SETUP_LEVELS')
+    if levels_valid:
+        try:
+            q = snapshot['quote']
+            bid, ask = number(q['bid']), number(q['ask'])
+            if not 0 < bid < ask:
+                raise ValueError('invalid entry quote')
+            entry = ask if side == 'LONG' else bid
+            sign = 1 if side == 'LONG' else -1
+            distances = [sign*(v-entry) for v in all_levels]
+            ahead = [v for v in distances if v >= 0]
+            room = min(ahead) if ahead else None
+            room_checked = True
+            if room is not None and room < c['tp_distance'] + c['room_buffer']:
+                reasons.append('ROOM_TO_TP')
+        except (KeyError, TypeError, ValueError):
+            reasons.append('INVALID_ENTRY_QUOTE')
     normalized = spread_ratio is not None and vol_ratio is not None and spread_ratio <= c['spread_shock_ratio'] and vol_ratio <= c['m5_shock_ratio']
     news = []
     try:
@@ -252,12 +262,12 @@ def evaluate(snapshot, legacy, c=None):
     if incomplete:
         score = 100.0
     label = 'EXTREME' if score >= c['tail_extreme'] else 'HIGH' if score >= c['tail_high'] else 'MEDIUM' if score >= c['tail_medium'] else 'LOW'
-    if score >= c['tail_high']:
+    if not incomplete and score >= c['tail_high']:
         reasons.append('TAIL_RISK_HIGH')
     evidence = snapshot.get('quality_evidence', {})
     quality_parts = {k: 2 if evidence.get(k) is True else 0 for k in ('regime', 'macro', 'location')}
     quality_parts.update(rejection=2 if state == 'REJECTION' else 0,
-                         room=2 if 'ROOM_TO_TP' not in reasons and 'INVALID_SETUP_LEVELS' not in reasons and 'LEGACY_LEVELS_UNAVAILABLE' not in reasons else 0,
+                         room=2 if room_checked and 'ROOM_TO_TP' not in reasons else 0,
                          news=2 if not any('NEWS' in r or 'CALENDAR' in r or r == 'SUPPRESSION' for r in reasons) else 0)
     quality = sum(quality_parts.values())
     grade = 'A+' if quality >= c['quality_a_plus'] else 'A' if quality >= c['quality_a'] else 'B' if quality >= c['quality_b'] else 'NO TRADE'
@@ -268,7 +278,7 @@ def evaluate(snapshot, legacy, c=None):
             'side': side, 'entry': entry, 'entry_tolerance': c['level_buffer'], 'tradeable': not reasons, 'reasons': reasons, 'tail_score': score,
             'tail_label': label, 'quality_score': quality, 'quality_grade': grade,
             'quality_components': quality_parts, 'level_state': state, 'room_to_tp': room,
-            'data_complete': not incomplete,
+            'data_complete': not incomplete, 'room_checked': room_checked,
             'measurements': {'spread_ratio': spread_ratio, 'm5_tr_atr': vol_ratio,
                              'm1_jump_sigma': jump},
             'large_loser_probability': None, 'probability_status': 'LOGGING_ONLY_NO_VALIDATED_MODEL'}

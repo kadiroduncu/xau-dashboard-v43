@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+import logging
 import os
 import streamlit as st
 import requests
@@ -54,9 +55,9 @@ def local_snapshot(data, now, c):
             snapshot.update(side=side, setup_level=level)
             hurst = data.get('regime')
             snapshot['quality_evidence'] = {
-                'regime': hurst is not None and hurst < 0.5,
-                'macro': data.get('macro_bias') == ('HEADWIND' if side == 'SHORT' else 'TAILWIND'),
-                'location': abs(level-price) <= c['level_buffer']*2,
+                'regime': bool(hurst is not None and hurst < 0.5),
+                'macro': bool(data.get('macro_bias') == ('HEADWIND' if side == 'SHORT' else 'TAILWIND')),
+                'location': bool(abs(level-price) <= c['level_buffer']*2),
             }
     return snapshot
 
@@ -73,6 +74,8 @@ def explain(reason):
         'INVALID_CALENDAR': 'Doğrulanmış haber takvimi gerekli',
         'NEWS_TIME_UNKNOWN': 'Haber günü: kesin saat yok, tüm gün blok',
         'CALENDAR_INCOMPLETE': 'Haber takvimi erişimi doğrulanamadı',
+        'INVALID_ENTRY_QUOTE': 'İşlem giriş fiyatı yok; grafik seviyeleri ayrı değerlendirildi',
+        'SETUP_LOG_UNAVAILABLE': 'Setup kayıt sistemi çalışmıyor',
         'INVALID_SETUP_LEVELS': 'Yön ve destek/direnç adayı değerlendirilemiyor',
         'DIRECTION_NOT_ALLOWED': 'Mevcut yön kapısından geçen aday yok',
         'TAIL_RISK_HIGH': 'Risk kapısı onay vermiyor',
@@ -213,7 +216,9 @@ def run_risk_panel(legacy, local_data=None):
                 st.dataframe([dict(p) for p in positions])
         finally:
             store.close()
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).exception('Setup recording failed')
+        st.warning('Setup kaydı başarısız (' + type(exc).__name__ + '). Sunucu günlüğüne hata ayrıntısı yazıldı; bu tur kaydedilmedi.')
         decision['tradeable'] = False
         decision['reasons'].append('SETUP_LOG_UNAVAILABLE')
     if decision['reasons']:

@@ -1,13 +1,28 @@
 """Durable immutable decision snapshots and explicitly sampled paper excursions."""
 import hashlib
 import json
+import math
+import numpy as np
 import sqlite3
 from risk_engine import timestamp, number, fresh, kill_reasons
 
 
+def audit_value(value):
+    """Preserve numerical scalars and explicitly tag undefined measurements in audit JSON."""
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, float) and not math.isfinite(value):
+        return {'nonfinite': 'nan' if math.isnan(value) else 'inf' if value > 0 else '-inf'}
+    if isinstance(value, dict):
+        return {k: audit_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [audit_value(v) for v in value]
+    return value
+
+
 class SetupStore:
     def __init__(self, path):
-        self.db = sqlite3.connect(path)
+        self.db = sqlite3.connect(path, timeout=10)
         self.db.execute('PRAGMA journal_mode=WAL')
         self.db.executescript('''
         CREATE TABLE IF NOT EXISTS decisions (
@@ -30,7 +45,8 @@ class SetupStore:
         self.db.close()
 
     def record(self, snapshot, decision):
-        raw = json.dumps(snapshot, sort_keys=True, allow_nan=False)
+        raw = json.dumps(audit_value(snapshot), sort_keys=True, allow_nan=False)
+        decision = audit_value(decision)
         # Same market snapshot + config is immutable across UI reruns.
         stable_decision = {k: v for k, v in decision.items() if k != 'as_of'}
         key = hashlib.sha256((raw+json.dumps(stable_decision, sort_keys=True, allow_nan=False)).encode()).hexdigest()

@@ -187,3 +187,21 @@ inputs and are not marked successful merely because the calendar is available.
 
 Validation: `python -m unittest discover -s tests -v` and
 `python backtest_risk_smoke.py tests/replay.example.jsonl` (replay sanity only, not profitability).
+
+## Logging and partial-analysis repair (2026-10-06)
+
+NumPy boolean values from Hurst/location comparisons were not JSON serializable and did not
+pass `is True` quality checks. The local adapter now emits native booleans; the audit writer
+also converts nested NumPy scalars. Non-finite measurements (for example a jump after a flat
+baseline) retain explicit `nonfinite` tags in stored JSON rather than crashing or becoming zero.
+Risk decisions are not relaxed by serialization. Storage failures show their exception category
+and write a server traceback; no failed write is reported as a successful record.
+
+Acceptance/rejection and level validation run independently of executable bid/ask availability.
+Missing bid/ask is reported as an entry-quote issue, not a broken level map. An unmeasured
+room-to-target receives zero quality credit. Incomplete data no longer adds a misleading
+measured-high-tail-risk reason, while full trade approval still remains blocked.
+
+58 local tests passed, including five new regression tests covering native/NumPy values,
+infinite jumps, missing quotes, repeated Streamlit runs and failed storage. The public repo's
+standalone regression can be run with `python -m unittest test_logging_repair -v`.
