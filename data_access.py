@@ -55,13 +55,18 @@ def reference_gold():
     except Exception:return None
 
 
-def audit_twelve(key):
+def audit_twelve(key, rates=False):
     """Manual, bounded probe. Never return error messages, credentials, or request URLs."""
     rows=[]
     checks=[('Hesap kotası','api_usage',{}),('XAU/USD quote','quote',{'symbol':'XAU/USD'}),
             ('DXY sembol arama','symbol_search',{'symbol':'DXY'}),
             ('US2Y sembol arama','symbol_search',{'symbol':'US2Y'}),
             ('US10Y sembol arama','symbol_search',{'symbol':'US10Y'})]
+    if rates:
+        checks=[('ABD tahvil kataloğu','bonds',{'country':'United States','show_plan':'true'}),
+                ('US2Y fiyat erişimi','quote',{'symbol':'US2Y'}),
+                ('US2Y gün içi mum','time_series',{'symbol':'US2Y','interval':'5min','outputsize':3,'timezone':'UTC'}),
+                ('Dolar endeksi ad arama','symbol_search',{'symbol':'US Dollar Index'})]
     for name,endpoint,params in checks:
         try:
             if not key:raise ValueError('missing key')
@@ -70,7 +75,13 @@ def audit_twelve(key):
             if not error:
                 if endpoint=='quote':
                     detail='Alanlar: '+', '.join(k for k in ('symbol','timestamp','datetime','close','price','bid','ask') if k in d)
+                    detail+=' · saat/değer: '+str(d.get('datetime','?'))+' / '+str(d.get('close',d.get('price','?')))
                     detail+=' · bid/ask '+('var' if 'bid' in d and 'ask' in d else 'yok')
+                elif endpoint=='bonds':
+                    matches=d.get('result',{}).get('list',[])
+                    detail='; '.join(str(m.get('symbol'))+' / '+str(m.get('name'))+' / '+str(m.get('access',{})) for m in matches[:20]) or 'Katalog sonucu yok'
+                elif endpoint=='time_series':
+                    detail='meta: '+str({k:d.get('meta',{}).get(k) for k in ('symbol','interval','type','exchange','currency')})+' · mumlar: '+str([{k:v.get(k) for k in ('datetime','close')} for v in d.get('values',[])[:3]])
                 elif endpoint=='api_usage':
                     detail=' · '.join(f'{k}: {d[k]}' for k in ('current_usage','plan_limit','daily_usage','daily_limit') if k in d)
                 else:
@@ -96,4 +107,8 @@ def render_data_access(td_key, fred_key):
             st.session_state['twelve_access_audit']=audit_twelve(td_key)
         if 'twelve_access_audit' in st.session_state:
             st.dataframe(st.session_state['twelve_access_audit'],hide_index=True,use_container_width=True)
-        st.caption('Test yalnız okuma yapar. Anahtarlar gösterilmez; 5 sınırlı istek gönderilir. Abonelik satın alınmaz.')
+        if st.button('Tahvil ve endeks erişimini ayrıntılı test et'):
+            st.session_state['rates_access_audit']=audit_twelve(td_key,rates=True)
+        if 'rates_access_audit' in st.session_state:
+            st.dataframe(st.session_state['rates_access_audit'],hide_index=True,use_container_width=True)
+        st.caption('Test yalnız okuma yapar. Anahtarlar gösterilmez; Test başına en fazla 5 istek gönderilir; dakika kotası nedeniyle testler arasında en az 1 dakika bırakın. Abonelik satın alınmaz.')
