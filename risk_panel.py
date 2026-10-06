@@ -125,7 +125,7 @@ def analysis_status(snapshot, legacy, decision, c):
     if room is None:
         reasons.append('Grafik hedef mesafesi doğrulanamadı')
     elif room['distance'] is not None and room['distance'] < c['tp_distance'] + c['room_buffer']:
-        reasons.append(f"Grafik hedefi önünde engel: {room['distance']:.2f} $/oz; gerekli mesafe {c['tp_distance'] + c['room_buffer']:.2f} $/oz")
+        reasons.append(f"Grafik hedefi önünde engel: {room['distance']:.2f} USD/ons; gerekli mesafe {c['tp_distance'] + c['room_buffer']:.2f} USD/ons")
     # Room evidence here is explicitly candle-based, never an executable price.
     parts = dict(decision.get('quality_components', {}))
     parts['room'] = 2 if room and (room['distance'] is None or room['distance'] >= c['tp_distance'] + c['room_buffer']) else 0

@@ -1440,7 +1440,7 @@ if _v43_result['tradeable']:
 # Chart analysis is useful with existing candle feeds. Execution gate remains strict.
 from risk_panel import compact_execution_reasons
 _analysis = _v43_result.get('analysis', {'status':'VERİ EKSİK','side':None,'reasons':['Analiz katmanı yüklenemedi']})
-_karar_slot.metric("ANALİZ", _analysis['side'] or 'YÖN YOK', _analysis['status'])
+_karar_slot.markdown('**ANALİZ**\n\n**' + (_analysis['side'] or 'YÖN YOK') + '**\n\n' + _analysis['status'])
 with _master_banner.container():
     st.info('**GRAFİK ANALİZİ — ' + _analysis['status'] + '** · Yön: ' + (_analysis['side'] or 'belirlenmedi') +
             ' · ' + (' · '.join(explain(r) for r in _analysis['reasons']) or 'Mevcut mum, seviye ve haber kontrollerinde engel yok; işlem onayı değildir.'))
@@ -1457,6 +1457,9 @@ with _master_banner.container():
         for _note in _mg_soft:
             st.caption(_note)
     st.caption('JUMP/COT/GVZ/NEWS yeşil olması, fiyat-spread ve çapraz piyasa kontrollerinin tamamlandığı anlamına gelmez.')
+
+from data_access import render_data_access
+render_data_access(TD_KEY, FRED_KEY)
 
 # Detail expander - HER haberin LLM analizini goster (seffaflik)
 if _gold_impacts:
