@@ -205,3 +205,18 @@ measured-high-tail-risk reason, while full trade approval still remains blocked.
 58 local tests passed, including five new regression tests covering native/NumPy values,
 infinite jumps, missing quotes, repeated Streamlit runs and failed storage. The public repo's
 standalone regression can be run with `python -m unittest test_logging_repair -v`.
+
+## Separate chart analysis from execution approval
+
+The top card now reports chart direction and one of VERİ EKSİK, BEKLE or İZLEME ADAYI.
+Chart assessment uses fresh M1/M5, the existing direction/session gates, news checks,
+acceptance/rejection and candle-based room to the configured target. Nearby obstacles,
+stale candles and news vetoes prevent a chart candidate. Chart quality explicitly uses
+candle-based room; it is distinct from executable-quote quality.
+
+Missing spread and intraday cross-market inputs remain visible in the separate MASTER GATE
+execution summary. Execution/paper approval and exported master-gate status remain strict;
+a chart candidate never enables an order or paper entry. Repeated derivative connection
+messages are condensed in the summary only. Full diagnostics remain in the risk panel.
+62 local tests passed. Public standalone tests: `python -m unittest test_analysis_mode -v`
+(requires the existing `test_logging_repair.py` from PR #2).

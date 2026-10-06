@@ -65,7 +65,8 @@ def local_snapshot(data, now, c):
 def explain(reason):
     code, _, detail = reason.partition(':')
     labels = {
-        'MISSING': 'Veri bağlantısı eksik', 'STALE': 'Veri güncel değil',
+        'MISSING': 'Veri bağlantısı eksik',
+        'LEGACY_MASTER_BLOCK': 'v42 yön/seans/risk koşulları geçmedi', 'STALE': 'Veri güncel değil',
         'CHANNEL_UNAVAILABLE_OR_RED': 'Kanal veto / veri sorunu',
         'INVALID_SPREAD_DATA': 'Gerçek bid/ask ve spread geçmişi gerekli',
         'INVALID_CROSS_MARKET': 'Zaman uyumlu DXY ve 2Y/10Y getirileri gerekli',
@@ -110,6 +111,42 @@ def indicative_room(snapshot, legacy, c):
                 'distance': min(ahead) if ahead else None}
     except (KeyError, TypeError, ValueError, IndexError):
         return None
+
+
+
+def analysis_status(snapshot, legacy, decision, c):
+    """Chart-only assessment; NEVER used by candidate_approved or paper execution."""
+    execution_only = {'INVALID_SPREAD_DATA', 'INVALID_CROSS_MARKET', 'INVALID_ENTRY_QUOTE',
+                      'QUALITY_BELOW_A'}
+    missing_execution = {'MISSING:'+k for k in ('quote','dxy','yield2','yield10')}
+    missing_execution |= {'STALE:'+k for k in ('quote','dxy','yield2','yield10')}
+    reasons = [r for r in decision['reasons'] if r not in execution_only | missing_execution]
+    room = indicative_room(snapshot, legacy, c)
+    if room is None:
+        reasons.append('Grafik hedef mesafesi doğrulanamadı')
+    elif room['distance'] is not None and room['distance'] < c['tp_distance'] + c['room_buffer']:
+        reasons.append(f"Grafik hedefi önünde engel: {room['distance']:.2f} $/oz; gerekli mesafe {c['tp_distance'] + c['room_buffer']:.2f} $/oz")
+    # Room evidence here is explicitly candle-based, never an executable price.
+    parts = dict(decision.get('quality_components', {}))
+    parts['room'] = 2 if room and (room['distance'] is None or room['distance'] >= c['tp_distance'] + c['room_buffer']) else 0
+    score = sum(parts.values())
+    if score < c['quality_a']:
+        reasons.append(f'Grafik setup puanı yetersiz: {score}/12')
+    reasons = list(dict.fromkeys(reasons))
+    unavailable = any(r.startswith(('INVALID_', 'MISSING:', 'STALE:', 'CALENDAR_', 'CHANNEL_UNAVAILABLE')) for r in reasons)
+    return dict(status='VERİ EKSİK' if unavailable else 'BEKLE' if reasons else 'İZLEME ADAYI',
+                side=snapshot.get('side'), reasons=reasons, room=room,
+                quality_score=score, execution_approved=False)
+
+
+def compact_execution_reasons(reasons):
+    """Remove derivative duplicate messages from the summary, retain full diagnostics below."""
+    hidden = set()
+    if 'MISSING:quote' in reasons:
+        hidden.update(['INVALID_SPREAD_DATA','INVALID_ENTRY_QUOTE'])
+    if any('MISSING:'+k in reasons for k in ('dxy','yield2','yield10')):
+        hidden.add('INVALID_CROSS_MARKET')
+    return [r for r in reasons if r not in hidden]
 
 
 def run_risk_panel(legacy, local_data=None):
@@ -225,4 +262,5 @@ def run_risk_panel(legacy, local_data=None):
         st.error('WHY NOT TRADE — ' + ' · '.join(explain(r) for r in decision['reasons']))
     else:
         st.success('Risk ve setup kontrolleri geçti — yalnız paper değerlendirme')
+    decision['analysis'] = analysis_status(snapshot, legacy, decision, c)
     return decision
