@@ -39,6 +39,63 @@ def closed_at_fetch(frame, interval, fetched_at=None):
     return frame.loc[frame['datetime'] + pd.Timedelta(minutes=minutes) <= cutoff].copy()
 
 
+def verify_conflicting_daily_candles(api_key, frame):
+    """Resolve at most three closed dates with independent date-bounded requests.
+
+    Never choose first/last/average from a conflict. A date is usable only if
+    the date-specific provider response is unique, valid and matches one of
+    the original candidates. An ambiguous/unavailable reply keeps the veto.
+    """
+    dates = sorted(frame.loc[frame['datetime'].duplicated(keep=False), 'datetime'].unique())
+    if not dates or len(dates) > 3:
+        return frame, []
+    result = frame.copy()
+    resolved = []
+    today = pd.Timestamp.now(tz='UTC').tz_localize(None).normalize()
+    for date in dates:
+        stamp = pd.Timestamp(date)
+        if stamp != stamp.normalize() or stamp >= today:
+            continue
+        try:
+            response = requests.get('https://api.twelvedata.com/time_series', params={
+                'symbol': 'XAU/USD', 'interval': '1day', 'apikey': api_key,
+                'start_date': stamp.date().isoformat(),
+                'end_date': (stamp + pd.Timedelta(days=1)).date().isoformat(),
+                'timezone': 'UTC'}, timeout=15)
+            payload = response.json()
+            if getattr(response, 'status_code', 200) != 200 or not isinstance(payload, dict):
+                continue
+            meta = payload.get('meta') or {}
+            if meta.get('symbol', 'XAU/USD') != 'XAU/USD' or meta.get('interval', '1day') != '1day':
+                continue
+            rows = payload.get('values')
+            if not isinstance(rows, list) or not rows or len(rows) > 4:
+                continue
+            candidate = pd.DataFrame(rows)
+            candidate['datetime'] = pd.to_datetime(candidate['datetime'], utc=True, format='mixed').dt.tz_localize(None)
+            candidate = candidate.loc[candidate['datetime'] == stamp].copy()
+            columns = ['open', 'high', 'low', 'close']
+            for column in columns:
+                candidate[column] = pd.to_numeric(candidate[column], errors='raise')
+            candidate = candidate.drop_duplicates(subset=['datetime'] + columns)
+            if len(candidate) != 1:
+                continue
+            values = candidate.iloc[0]
+            if not all(math.isfinite(values[k]) and values[k] > 0 for k in columns):
+                continue
+            if values['low'] > min(values['open'], values['close']) or values['high'] < max(values['open'], values['close']):
+                continue
+            original = result.loc[result['datetime'] == stamp]
+            matches = original[columns].apply(lambda row: all(math.isclose(row[k], values[k], rel_tol=1e-10, abs_tol=1e-8) for k in columns), axis=1)
+            if not matches.any():
+                continue
+            result = pd.concat([result.loc[result['datetime'] != stamp], original.loc[matches].iloc[:1]], ignore_index=True)
+            resolved.append(stamp.date().isoformat())
+        except (requests.RequestException, ValueError, TypeError, KeyError):
+            continue
+    return result, resolved
+
+
 def time_series(api_key, interval):
     seconds = REFRESH_SECONDS[interval]
     if not isinstance(seconds, (int, float)) or seconds <= 0:
@@ -70,6 +127,9 @@ def _time_series(api_key, interval, refresh_bucket):
         # Some provider pages repeat the same daily candle. Identical OHLC rows
         # carry no additional observation; conflicting candles remain invalid.
         df = df.drop_duplicates(subset=['datetime', 'open', 'high', 'low', 'close'])
+        verified_dates = []
+        if interval == '1day' and df['datetime'].duplicated().any():
+            df, verified_dates = verify_conflicting_daily_candles(api_key, df)
         if df['datetime'].duplicated().any():
             ambiguous = df.loc[df['datetime'].duplicated(keep=False), 'datetime'].max()
             # A contiguous suffix after the last ambiguous candle is usable
@@ -89,7 +149,8 @@ def _time_series(api_key, interval, refresh_bucket):
                     if len(segment) >= FEED_CONFIG.get('daily_min_history', 22) and segment['datetime'].iloc[-1] >= cutoff:
                         return segment, message + f". Günlük analizde kullanılan son tutarlı dönem: {segment['datetime'].iloc[-1].date()} ({len(segment)} mum); sonraki kayıtlar analize katılmadı."
             return (recent if len(recent) else None), message
-        return df.sort_values('datetime').reset_index(drop=True), None
+        note = ('Günlük mum çakışması bağımsız tarih sorgusuyla doğrulandı: ' + ', '.join(verified_dates)) if verified_dates else None
+        return df.sort_values('datetime').reset_index(drop=True), note
     except requests.Timeout:
         return None, 'Twelve Data bağlantısı zaman aşımına uğradı'
     except requests.RequestException:
@@ -173,3 +234,4 @@ def economic_calendar(api_key, fred_key=None):
         fallback, error = official_calendar(fred_key, now)
         fallback['fallback_reason'] = 'Finnhub takvim erişimi doğrulanamadı; resmî kaynaklar kullanılıyor.'
         return fallback, error
+
