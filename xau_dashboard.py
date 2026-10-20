@@ -12,6 +12,7 @@ v35 -> v36 DEGISIKLIK (yeni edge/strateji YOK; tutarlilik + dogru etiketleme):
 v35 cekirdegi (K1/K2/K3 fix) ve v34 (kirilim vetosu), v33 mantigi KORUNDU. Korunan fonksiyonlar
 imza/davranis olarak DEGISMEDI."""
 import streamlit as st
+from display_validation import valid_price, position_error
 from xau_signal_export import build_snapshot, publish_snapshot, utc_now
 from pathlib import Path as _SignalPath
 _signal_started_at = utc_now()
@@ -539,6 +540,8 @@ def validate_v10_positions(positions, current_price):
 
 def compute_magnet_levels(df_d1, df_h1, current_price):
     """Stop hunt mıknatısı olabilecek seviyeleri tespit et"""
+    if not valid_price(current_price):
+        return []
     magnets = []
     
     # 1. PDH / PDL (önceki gün H/L)
@@ -1125,7 +1128,10 @@ def get_gold_impact_analyses(news_signatures):
 
 
 price, _price_fetched_at = get_price_snapshot()
-st.title(f"🥇 XAU/USD Dashboard v43 — ${price:.2f}")
+_price_valid = valid_price(price)
+st.title("🥇 XAU/USD Dashboard v43 — " + (f"${price:.2f}" if _price_valid else "Fiyat verisi yok"))
+if not _price_valid:
+    st.warning("Güncel analiz fiyatı alınamadı. Fiyata bağlı hesaplar ve PnL gösterilmiyor.")
 st.caption(f"Update: {datetime.now().strftime('%H:%M:%S')}")
 
 news, analyses, agg = get_news_and_sentiment()
@@ -1802,18 +1808,25 @@ with st.form("v10_add_pos", clear_on_submit=True):
     pc = st.columns(7)
     p_type = pc[0].selectbox("Tip", ['fade', 'breakout'])
     p_side = pc[1].selectbox("Yön", ['LONG', 'SHORT'])
-    p_entry = pc[2].number_input("Entry", value=float(price), step=0.01, format="%.2f")
-    p_tp = pc[3].number_input("TP", value=float(p_entry + 10 if p_side == 'LONG' else p_entry - 10),
-                              step=0.01, format="%.2f")
-    p_sl = pc[4].number_input("SL", value=float(p_entry - 30 if p_side == 'LONG' else p_entry + 30),
-                              step=0.01, format="%.2f")
+    p_entry = pc[2].number_input("Entry", value=float(price) if _price_valid else None,
+                                    min_value=0.01, step=0.01, format="%.2f")
+    _default_tp = (p_entry + 10 if p_side == 'LONG' else p_entry - 10) if valid_price(p_entry) else None
+    _default_sl = (p_entry - 30 if p_side == 'LONG' else p_entry + 30) if valid_price(p_entry) else None
+    p_tp = pc[3].number_input("TP", value=float(_default_tp) if valid_price(_default_tp) else None,
+                              min_value=0.01, step=0.01, format="%.2f")
+    p_sl = pc[4].number_input("SL", value=float(_default_sl) if valid_price(_default_sl) else None,
+                              min_value=0.01, step=0.01, format="%.2f")
     if pc[5].form_submit_button("➕ Ekle"):
-        st.session_state.v10_positions.append({
-            'type': p_type, 'side': p_side, 'entry': p_entry,
-            'tp': p_tp, 'sl': p_sl,
-            'opened': datetime.now().isoformat(),
-        })
-        st.rerun()
+        _position_error = position_error(p_side,p_entry,p_tp,p_sl)
+        if _position_error:
+            st.error(_position_error)
+        else:
+            st.session_state.v10_positions.append({
+                'type': p_type, 'side': p_side, 'entry': p_entry,
+                'tp': p_tp, 'sl': p_sl,
+                'opened': datetime.now().isoformat(),
+            })
+            st.rerun()
     if pc[6].form_submit_button("🗑️ Tümünü sil"):
         st.session_state.v10_positions = []
         st.rerun()
@@ -1827,10 +1840,10 @@ if st.session_state.v10_positions:
             'Entry': f"${p['entry']:.2f}",
             'TP': f"${p['tp']:.2f}",
             'SL': f"${p['sl']:.2f}",
-            'PnL': f"${_pnl:+.2f}",
+            'PnL': f"${_pnl:+.2f}" if _price_valid else 'Fiyat verisi yok',
         })
     st.dataframe(pd.DataFrame(_pos_rows), hide_index=True, use_container_width=True)
-    _v10_warns = validate_v10_positions(st.session_state.v10_positions, price)
+    _v10_warns = validate_v10_positions(st.session_state.v10_positions, price) if _price_valid else ["Güncel fiyat olmadan PnL ve fiyat tetikleyicileri değerlendirilemiyor."]
     for _w in _v10_warns:
         st.warning(_w)
     if _f5_bull and _n_open_fades > 0:
