@@ -9,6 +9,7 @@ from trend_filter import trend_filter
 
 class HistoryPageRecoveryTests(unittest.TestCase):
     def setUp(self):
+        md._PROVIDER_COOLDOWNS.clear()
         self.fixtures = fixtures.DailyConflictResolutionTests()
         self.frame = self.fixtures.frame()
         self.rows = self.frame.drop_duplicates('datetime').to_dict('records')

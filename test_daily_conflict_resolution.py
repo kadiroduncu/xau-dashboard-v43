@@ -6,6 +6,8 @@ import pandas as pd
 import market_data as md
 
 class DailyConflictResolutionTests(unittest.TestCase):
+    def setUp(self):
+        md._PROVIDER_COOLDOWNS.clear()
     def frame(self):
         return pd.DataFrame([
             {'datetime':pd.Timestamp('2026-09-01'),'open':10.,'high':12.,'low':9.,'close':11.},

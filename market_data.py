@@ -2,6 +2,8 @@
 from datetime import datetime, timezone, timedelta
 from io import StringIO
 import math
+import hashlib
+import threading
 import json
 import time
 from pathlib import Path
@@ -27,6 +29,40 @@ def provider_error(payload, status=200):
     if code in (401, 403) or any(x in message for x in ('apikey', 'api key', 'permission', 'plan')):
         return 'API anahtarı veya veri aboneliği erişimi gerekli'
     return 'Sağlayıcı geçerli veri döndürmedi'
+
+
+class ProviderCooldown(Exception):
+    pass
+
+
+_PROVIDER_COOLDOWNS = {}
+_PROVIDER_LOCK = threading.Lock()
+
+
+def provider_get(params, timeout=15):
+    """Share quota backoff across intervals; never persist a raw API key."""
+    identity = hashlib.sha256(str(params.get('apikey', '')).encode()).hexdigest()
+    with _PROVIDER_LOCK:
+        until, message = _PROVIDER_COOLDOWNS.get(identity, (0, ''))
+        if time.time() < until:
+            raise ProviderCooldown(message)
+    response = requests.get('https://api.twelvedata.com/time_series', params=params, timeout=timeout)
+    try:
+        payload = response.json()
+    except ValueError:
+        return response
+    if isinstance(payload, dict):
+        code = payload.get('code', getattr(response, 'status_code', 200))
+        message = str(payload.get('message', '')).lower()
+        limited = code == 429 or (not payload.get('values') and any(x in message for x in ('credit', 'quota', 'limit')))
+        if limited:
+            now = datetime.fromtimestamp(time.time(), timezone.utc)
+            daily = 'day' in message or 'daily' in message
+            until = ((now + timedelta(days=1)).replace(hour=0, minute=0, second=2, microsecond=0).timestamp()
+                     if daily else (int(time.time() // 60) + 1) * 60 + 2)
+            with _PROVIDER_LOCK:
+                _PROVIDER_COOLDOWNS[identity] = (until, provider_error(payload, code))
+    return response
 
 
 def closed_at_fetch(frame, interval, fetched_at=None):
@@ -61,7 +97,7 @@ def verify_conflicting_daily_candles(api_key, frame):
         attempt = {'date':stamp.date().isoformat(), 'status':'yanıt doğrulanamadı'}
         audit.append(attempt)
         try:
-            response = requests.get('https://api.twelvedata.com/time_series', params={
+            response = provider_get(params={
                 'symbol': 'XAU/USD', 'interval': '1day', 'apikey': api_key,
                 'start_date': stamp.isoformat(),
                 'end_date': (stamp + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)).isoformat(),
@@ -102,7 +138,7 @@ def verify_conflicting_daily_candles(api_key, frame):
             result = pd.concat([result.loc[result['datetime'] != stamp], original.loc[matches].iloc[:1]], ignore_index=True)
             attempt['status'] = 'doğrulandı'
             resolved.append(stamp.date().isoformat())
-        except (requests.RequestException, ValueError, TypeError, KeyError):
+        except (ProviderCooldown, requests.RequestException, ValueError, TypeError, KeyError):
             continue
     return result, resolved
 
@@ -121,7 +157,7 @@ def verify_daily_history_page(api_key, frame):
     frame.attrs['conflict_recheck'] = audit
     try:
         start, end = frame['datetime'].min(), frame['datetime'].max()
-        response = requests.get('https://api.twelvedata.com/time_series', params={
+        response = provider_get(params={
             'symbol': 'XAU/USD', 'interval': '1day', 'apikey': api_key,
             'start_date': start.isoformat(),
             'end_date': (end + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)).isoformat(),
@@ -163,7 +199,7 @@ def verify_daily_history_page(api_key, frame):
         attempt['status'] = 'tüm tarih ve fiyat kapsamı doğrulandı'
         page.attrs['conflict_recheck'] = audit
         return page, [pd.Timestamp(date).date().isoformat() for date in dates]
-    except (requests.RequestException, ValueError, TypeError, KeyError):
+    except (ProviderCooldown, requests.RequestException, ValueError, TypeError, KeyError):
         return frame, []
 
 
@@ -177,7 +213,7 @@ def time_series(api_key, interval):
 @st.cache_data(ttl=86400, max_entries=512, show_spinner=False)
 def _time_series(api_key, interval, refresh_bucket):
     try:
-        response = requests.get('https://api.twelvedata.com/time_series', params={
+        response = provider_get(params={
             'symbol': 'XAU/USD', 'interval': interval, 'outputsize': SIZES[interval],
             'apikey': api_key, 'timezone': 'UTC'}, timeout=15)
         payload = response.json()
@@ -227,6 +263,8 @@ def _time_series(api_key, interval, refresh_bucket):
             return (recent if len(recent) else None), message
         note = ('Günlük mum çakışması bağımsız tarih sorgusuyla doğrulandı: ' + ', '.join(verified_dates)) if verified_dates else None
         return df.sort_values('datetime').reset_index(drop=True), note
+    except ProviderCooldown as error:
+        return None, str(error)
     except requests.Timeout:
         return None, 'Twelve Data bağlantısı zaman aşımına uğradı'
     except requests.RequestException:
