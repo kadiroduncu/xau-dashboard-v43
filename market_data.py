@@ -107,11 +107,71 @@ def verify_conflicting_daily_candles(api_key, frame):
     return result, resolved
 
 
+
+def verify_daily_history_page(api_key, frame):
+    """Re-read the full date window; accept only a complete, matching unique page.
+
+    This avoids a broken single-date endpoint without joining over a missing
+    date or selecting an arbitrary duplicate. Every original date must exist;
+    every returned candle must match one of that date's original candidates.
+    """
+    audit = list(frame.attrs.get('conflict_recheck', []))
+    attempt = {'method': 'full_date_window', 'status': 'yanıt doğrulanamadı'}
+    audit.append(attempt)
+    frame.attrs['conflict_recheck'] = audit
+    try:
+        start, end = frame['datetime'].min(), frame['datetime'].max()
+        response = requests.get('https://api.twelvedata.com/time_series', params={
+            'symbol': 'XAU/USD', 'interval': '1day', 'apikey': api_key,
+            'start_date': start.isoformat(),
+            'end_date': (end + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)).isoformat(),
+            'timezone': 'UTC', 'order': 'asc'}, timeout=15)
+        payload = response.json()
+        attempt['http_status'] = getattr(response, 'status_code', 200)
+        if attempt['http_status'] != 200 or not isinstance(payload, dict):
+            return frame, []
+        meta = payload.get('meta') or {}
+        if meta.get('symbol') != 'XAU/USD' or meta.get('interval') != '1day':
+            return frame, []
+        rows = payload.get('values')
+        attempt['returned_rows'] = len(rows) if isinstance(rows, list) else 0
+        if not isinstance(rows, list) or not rows or len(rows) > 5000:
+            return frame, []
+        page = pd.DataFrame(rows)
+        page['datetime'] = pd.to_datetime(page['datetime'], utc=True, format='mixed').dt.tz_localize(None)
+        columns = ['open', 'high', 'low', 'close']
+        for column in columns:
+            page[column] = pd.to_numeric(page[column], errors='raise')
+        page = page.drop_duplicates(subset=['datetime'] + columns)
+        if page.datetime.isna().any() or page.datetime.duplicated().any():
+            attempt['status'] = 'aralık yanıtı da çelişkili'
+            return frame, []
+        if set(page.datetime) != set(frame.datetime):
+            attempt['status'] = 'aralık yanıtının tarih kapsamı eşleşmiyor'
+            return frame, []
+        for row in page.to_dict('records'):
+            original = frame.loc[frame.datetime == row['datetime'], columns]
+            if not original.apply(lambda candidate: all(
+                    math.isfinite(row[k]) and math.isclose(candidate[k], row[k], rel_tol=1e-10, abs_tol=1e-8)
+                    for k in columns), axis=1).any():
+                attempt['status'] = 'aralık yanıtının fiyatları ilk adaylarla eşleşmiyor'
+                return frame, []
+        dates = sorted(frame.loc[frame.datetime.duplicated(keep=False), 'datetime'].unique())
+        today = pd.Timestamp.now(tz='UTC').tz_localize(None).normalize()
+        if any(pd.Timestamp(date) >= today for date in dates):
+            return frame, []
+        attempt['status'] = 'tüm tarih ve fiyat kapsamı doğrulandı'
+        page.attrs['conflict_recheck'] = audit
+        return page, [pd.Timestamp(date).date().isoformat() for date in dates]
+    except (requests.RequestException, ValueError, TypeError, KeyError):
+        return frame, []
+
+
 def time_series(api_key, interval):
     seconds = REFRESH_SECONDS[interval]
     if not isinstance(seconds, (int, float)) or seconds <= 0:
         raise ValueError('invalid time series cache duration')
-    return _time_series(api_key, interval, ('daily-recheck-v2', int(time.time() // seconds)))
+    return _time_series(api_key, interval, ('daily-recheck-v3', int(time.time() // seconds)))
 
 
 @st.cache_data(ttl=86400, max_entries=512, show_spinner=False)
@@ -141,6 +201,9 @@ def _time_series(api_key, interval, refresh_bucket):
         verified_dates = []
         if interval == '1day' and df['datetime'].duplicated().any():
             df, verified_dates = verify_conflicting_daily_candles(api_key, df)
+            if df['datetime'].duplicated().any():
+                df, page_dates = verify_daily_history_page(api_key, df)
+                verified_dates.extend(page_dates)
         if df['datetime'].duplicated().any():
             ambiguous = df.loc[df['datetime'].duplicated(keep=False), 'datetime'].max()
             # A contiguous suffix after the last ambiguous candle is usable

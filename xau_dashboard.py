@@ -251,7 +251,7 @@ def _hurst_inline(prices, max_lag=20):
 def compute_trend_gate(df):
     """Returns dict with long_allowed, short_allowed, reason, metrics"""
     if df is None or len(df) < 100:
-        return {'long_allowed': True, 'short_allowed': True,
+        return {'long_allowed': False, 'short_allowed': False,
                 'reason': 'Yetersiz D1 verisi',
                 'metrics': {}}
     closes = df['close']
@@ -2781,3 +2781,4 @@ try:
         st.json(_signal_payload)
 except Exception as _signal_export_error:
     st.warning("JSON export failed: " + type(_signal_export_error).__name__)
+

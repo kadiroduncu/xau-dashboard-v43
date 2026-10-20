@@ -61,7 +61,7 @@ def trend_filter(df, hurst_window=100, sma_period=50,
         return {
             'hurst': None, 'sma_slope': None,
             'donchian_broke_high': False, 'donchian_broke_low': False,
-            'long_allowed': True, 'short_allowed': True,
+            'long_allowed': False, 'short_allowed': False,
             'reason': f'YETERSIZ VERI ({0 if df is None else len(df)}/{required} bar)'
         }
     closes, highs, lows = df['close'], df['high'], df['low']
@@ -101,3 +101,4 @@ def trend_filter(df, hurst_window=100, sma_period=50,
         'short_allowed': short_allowed,
         'reason': reason
     }
+
