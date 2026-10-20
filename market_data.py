@@ -111,7 +111,7 @@ def time_series(api_key, interval):
     seconds = REFRESH_SECONDS[interval]
     if not isinstance(seconds, (int, float)) or seconds <= 0:
         raise ValueError('invalid time series cache duration')
-    return _time_series(api_key, interval, int(time.time() // seconds))
+    return _time_series(api_key, interval, ('daily-recheck-v2', int(time.time() // seconds)))
 
 
 @st.cache_data(ttl=86400, max_entries=512, show_spinner=False)
