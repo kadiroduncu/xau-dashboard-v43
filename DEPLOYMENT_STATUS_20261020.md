@@ -19,3 +19,12 @@ A second, full-date-window request can verify a broken single-date response only
 The live application subsequently reported Twelve Data daily quota exhaustion. This prevents immediate validation of the full-window fallback. A shared cooldown across all timeframes now stops repeated requests after a quota response; daily exhaustion retries after the next UTC midnight (03:00 Istanbul), and a per-minute limit retries after the next minute. Account identifiers are hashed in memory; no credential is written to diagnostics.
 
 50 public-repository tests pass, including complete-history recovery, missing-date veto, price consistency, missing-direction gates and quota reset/isolation regressions. No trade gate was relaxed, synthetic price inserted, broker order submitted, or notification sent. Full daily analysis remains externally blocked until the quota resets and consistent D1 history is available. The fallback is tested but has not been demonstrated against the live provider because its quota is exhausted.
+
+
+## Final cloud display hardening (20 October, approximately 15:00 Istanbul)
+
+The independent cloud screen now validates the latest M5 candle independently of the worker heartbeat. A fresh check with stale prices is an explicit data error, not an ordinary WAIT. Invalid/future/duplicate candle timestamps, malformed OHLC and inverted or non-finite signal levels cannot display a green candidate. The latest closed M5 timestamp is shown in Istanbul time.
+
+57 repository tests pass. Live verification confirmed the cloud screen shows a new check with the last M5 at 14:35 Istanbul and explicitly rejects stale prices. The full analysis screen confirms the provider daily quota is exhausted across timeframes. Neither screen is fully operational for fresh XAU analysis while that external outage remains.
+
+Operational dependencies still open: sufficient Twelve Data quota plus consistent daily history; independent-cloud reference prices are not XM account data. The dashboard validates provider recovery on its normal refresh; a healthy response must still pass the data gates. No service purchase, broker connection or order was made.
