@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import requests
 import streamlit as st
+from cloud_health import cloud_health
 
 st.set_page_config(page_title="XAU v43 · Bulut", layout="wide")
 st.title("XAU v43 · Bulut izleyicisi")
@@ -25,21 +26,27 @@ def panel():
     except Exception:
         st.error('Bulut durumuna erişilemiyor. Son karar güncel kabul edilmemeli.')
         return
+    health = cloud_health(state)
+    if not isinstance(state, dict):
+        st.error(health['reason'])
+        return
     checked = state.get('checked_at')
-    age = (datetime.now(timezone.utc) - datetime.fromisoformat(checked.replace('Z', '+00:00'))).total_seconds() if checked else float('inf')
     st.caption('Son bulut kontrolü: ' + str(checked) + ' · Kaynak: Twelve Data XAU/USD')
+    if health['last_close']:
+        from zoneinfo import ZoneInfo
+        st.caption('Son kapanmış M5: ' + health['last_close'].astimezone(ZoneInfo('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M İstanbul'))
     st.info('Referans fiyatlarla kapanmış M5 mumları izlenir. XM bid/ask, gerçek spread ve açık pozisyonlar bu sürümde izlenmez. Bu, yerel MT5 sürümünden ayrı bir bulut profilidir.')
-    engine = state.get('engine', {})
-    green = engine.get('green') if age <= 480 and state.get('data_ready') else None
-    if age > 480:
-        st.error('Bulut kontrolü gecikti; eski sinyal geçerli gösterilmiyor.')
+    engine = state.get('engine') if isinstance(state.get('engine'), dict) else {}
+    green = health['green']
+    if not health['ready']:
+        st.error(health['reason'])
     elif green:
         st.success(f"🟢 GİRİŞ ADAYI · {green['direction']} · {green['kind']}")
         st.write(f"Referans giriş: {green['entry']:.2f} · Hedef: {green['target']:.2f} · Teknik iptal: {green['invalidation']:.2f}")
         st.warning('Teknik iptal broker stopu değildir. Bu sinyal işlem açmaz.')
     else:
-        st.warning('BEKLE · ' + engine.get('reason', state.get('signal_reason', 'Başlatılıyor')))
-    bars = state.get('series', {}).get('5min', {}).get('bars', [])
+        st.warning('BEKLE · ' + health['reason'])
+    bars = health['bars']
     if bars:
         import pandas as pd
         frame = pd.DataFrame(bars[-100:])
@@ -54,3 +61,4 @@ def panel():
     with st.expander('Çalışma ve veri durumu'):
         st.json({'veri_hazır': state.get('data_ready'), 'motor_hazır': state.get('signal_engine_ready'), 'profil': state.get('profile'), 'hatalar': state.get('errors'), 'son_bildirim': state.get('delivery'), 'emir_iletimi': False})
 panel()
+
