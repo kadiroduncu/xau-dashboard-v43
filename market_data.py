@@ -46,6 +46,15 @@ def provider_get(params, timeout=15):
         until, message = _PROVIDER_COOLDOWNS.get(identity, (0, ''))
         if time.time() < until:
             raise ProviderCooldown(message)
+    profile = FEED_CONFIG.get('free_profile', {})
+    if profile.get('enabled'):
+        from free_budget import claim_request
+        try:
+            allowed = claim_request(params.get('apikey'), profile.get('dashboard_daily_request_budget',100))
+        except Exception as error:
+            raise ProviderCooldown('İstek bütçesi doğrulanamadı; API isteği yapılmadı') from error
+        if not allowed:
+            raise ProviderCooldown('Ücretsiz profilin kapsamlı panel bütçesi doldu; bağımsız M5 izleyicisinin kotası korunuyor')
     response = requests.get('https://api.twelvedata.com/time_series', params=params, timeout=timeout)
     try:
         payload = response.json()

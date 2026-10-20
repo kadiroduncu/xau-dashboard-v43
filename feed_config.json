@@ -4,11 +4,11 @@
   "daily_min_history": 22,
   "daily_max_age_days": 5,
   "time_series_cache_seconds": {
-    "1day": 3600,
-    "1h": 1800,
-    "4h": 7200,
-    "1min": 60,
-    "5min": 60
+    "1day": 21600,
+    "1h": 3600,
+    "4h": 14400,
+    "1min": 3600,
+    "5min": 3600
   },
   "dashboard_refresh_seconds": 60,
   "reference_quote": {
@@ -22,5 +22,11 @@
     "history_minutes": 120,
     "period_tolerance_seconds": 90,
     "max_age_seconds": 180
+  },
+  "free_profile": {
+    "enabled": true,
+    "dashboard_daily_request_budget": 100,
+    "independent_collector_daily_budget": 650,
+    "note": "Beş dakikalık bağımsız bulut izleyicisi öncelikli; kapsamlı panelde mumlar saatlik bağlamdır. Eski M1 işlem onayı vermez."
   }
 }

@@ -206,13 +206,20 @@ def _render_sr_map(price, chart_bars=120, near=250):
         st.plotly_chart(fig, use_container_width=True)
 
 
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=30)
 def get_price_snapshot():
+    # Reuse the already connected reference venue; no Twelve Data /price calls.
+    from live_feeds import fetch_reference_quote
+    quote, error = fetch_reference_quote()
+    if not quote or error:
+        return 0, None
     try:
-        r = requests.get("https://api.twelvedata.com/price",
-                         params={"symbol": "XAU/USD", "apikey": TD_KEY}).json()
-        return float(r.get('price', 0)), utc_now()
-    except Exception:
+        observed = datetime.fromisoformat(quote['observed_at'].replace('Z','+00:00'))
+        age = (datetime.now(timezone.utc)-observed).total_seconds()
+        if observed.tzinfo is None or not -5 <= age <= FEED_CONFIG['reference_quote']['max_age_seconds']:
+            return 0, None
+        return (quote['bid']+quote['ask'])/2, quote['observed_at']
+    except (ValueError,TypeError,KeyError):
         return 0, None
 
 
@@ -1133,6 +1140,10 @@ st.title("🥇 XAU/USD Dashboard v43 — " + (f"${price:.2f}" if _price_valid el
 if not _price_valid:
     st.warning("Güncel analiz fiyatı alınamadı. Fiyata bağlı hesaplar ve PnL gösterilmiyor.")
 st.caption(f"Update: {datetime.now().strftime('%H:%M:%S')}")
+st.caption("Fiyat: Swissquote referans bid/ask ortalaması; XM işlem fiyatı değildir.")
+if FEED_CONFIG.get('free_profile',{}).get('enabled'):
+    st.info("Ücretsiz profil: kapsamlı panel mumları saatlik bağlamdır; güncel olmayan M1 verisi işlem onayı vermez. Kesintisiz beş dakikalık kontrol ayrı bulut izleyicisindedir.")
+    st.link_button("5 dakikalık XAU bulut izleyicisini aç", "https://xau-v43-cloud.streamlit.app/")
 
 news, analyses, agg = get_news_and_sentiment()
 _calendar_snapshot, _calendar_error = economic_calendar(FH_KEY, FRED_KEY)
