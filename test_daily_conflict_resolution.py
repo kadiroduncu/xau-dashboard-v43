@@ -24,7 +24,7 @@ class DailyConflictResolutionTests(unittest.TestCase):
         self.assertEqual(actual.loc[actual.datetime==pd.Timestamp('2026-09-02'),'close'].iloc[0],12.)
         self.assertEqual(len(original),4)
         params=get.call_args.kwargs['params']
-        self.assertEqual(params['start_date'],'2026-09-02');self.assertEqual(params['end_date'],'2026-09-03');self.assertNotIn('outputsize',params)
+        self.assertEqual(params['start_date'],'2026-09-02T00:00:00');self.assertEqual(params['end_date'],'2026-09-02T23:59:59');self.assertNotIn('outputsize',params)
     def test_ambiguous_date_response_cannot_choose_first_or_last(self):
         frame=self.frame()
         with patch('market_data.requests.get',return_value=self.response([self.row(),self.row('13','14')])):
