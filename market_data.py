@@ -63,8 +63,8 @@ def verify_conflicting_daily_candles(api_key, frame):
         try:
             response = requests.get('https://api.twelvedata.com/time_series', params={
                 'symbol': 'XAU/USD', 'interval': '1day', 'apikey': api_key,
-                'start_date': stamp.date().isoformat(),
-                'end_date': (stamp + pd.Timedelta(days=1)).date().isoformat(),
+                'start_date': stamp.isoformat(),
+                'end_date': (stamp + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)).isoformat(),
                 'timezone': 'UTC'}, timeout=15)
             payload = response.json()
             attempt['http_status'] = getattr(response, 'status_code', 200)
@@ -79,6 +79,7 @@ def verify_conflicting_daily_candles(api_key, frame):
                 continue
             candidate = pd.DataFrame(rows)
             candidate['datetime'] = pd.to_datetime(candidate['datetime'], utc=True, format='mixed').dt.tz_localize(None)
+            attempt['returned_dates'] = [x.isoformat() for x in candidate['datetime']]
             candidate = candidate.loc[candidate['datetime'] == stamp].copy()
             columns = ['open', 'high', 'low', 'close']
             for column in columns:
