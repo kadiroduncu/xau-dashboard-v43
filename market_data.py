@@ -51,11 +51,15 @@ def verify_conflicting_daily_candles(api_key, frame):
         return frame, []
     result = frame.copy()
     resolved = []
+    audit = []
+    result.attrs['conflict_recheck'] = audit
     today = pd.Timestamp.now(tz='UTC').tz_localize(None).normalize()
     for date in dates:
         stamp = pd.Timestamp(date)
         if stamp != stamp.normalize() or stamp >= today:
             continue
+        attempt = {'date':stamp.date().isoformat(), 'status':'yanıt doğrulanamadı'}
+        audit.append(attempt)
         try:
             response = requests.get('https://api.twelvedata.com/time_series', params={
                 'symbol': 'XAU/USD', 'interval': '1day', 'apikey': api_key,
@@ -63,12 +67,14 @@ def verify_conflicting_daily_candles(api_key, frame):
                 'end_date': (stamp + pd.Timedelta(days=1)).date().isoformat(),
                 'timezone': 'UTC'}, timeout=15)
             payload = response.json()
+            attempt['http_status'] = getattr(response, 'status_code', 200)
             if getattr(response, 'status_code', 200) != 200 or not isinstance(payload, dict):
                 continue
             meta = payload.get('meta') or {}
             if meta.get('symbol', 'XAU/USD') != 'XAU/USD' or meta.get('interval', '1day') != '1day':
                 continue
             rows = payload.get('values')
+            attempt['returned_rows'] = len(rows) if isinstance(rows, list) else 0
             if not isinstance(rows, list) or not rows or len(rows) > 4:
                 continue
             candidate = pd.DataFrame(rows)
@@ -78,7 +84,9 @@ def verify_conflicting_daily_candles(api_key, frame):
             for column in columns:
                 candidate[column] = pd.to_numeric(candidate[column], errors='raise')
             candidate = candidate.drop_duplicates(subset=['datetime'] + columns)
+            attempt['unique_date_rows'] = len(candidate)
             if len(candidate) != 1:
+                attempt['status'] = 'tarih yanıtı eksik veya çelişkili'
                 continue
             values = candidate.iloc[0]
             if not all(math.isfinite(values[k]) and values[k] > 0 for k in columns):
@@ -88,8 +96,10 @@ def verify_conflicting_daily_candles(api_key, frame):
             original = result.loc[result['datetime'] == stamp]
             matches = original[columns].apply(lambda row: all(math.isclose(row[k], values[k], rel_tol=1e-10, abs_tol=1e-8) for k in columns), axis=1)
             if not matches.any():
+                attempt['status'] = 'tarih yanıtı ilk adaylarla eşleşmiyor'
                 continue
             result = pd.concat([result.loc[result['datetime'] != stamp], original.loc[matches].iloc[:1]], ignore_index=True)
+            attempt['status'] = 'doğrulandı'
             resolved.append(stamp.date().isoformat())
         except (requests.RequestException, ValueError, TypeError, KeyError):
             continue
@@ -148,6 +158,8 @@ def _time_series(api_key, interval, refresh_bucket):
                     segment = segment.sort_values('datetime').reset_index(drop=True)
                     if len(segment) >= FEED_CONFIG.get('daily_min_history', 22) and segment['datetime'].iloc[-1] >= cutoff:
                         return segment, message + f". Günlük analizde kullanılan son tutarlı dönem: {segment['datetime'].iloc[-1].date()} ({len(segment)} mum); sonraki kayıtlar analize katılmadı."
+            if df.attrs.get('conflict_recheck'):
+                message += '. Tarih sorgusu kontrolü: ' + json.dumps(df.attrs['conflict_recheck'], ensure_ascii=False)
             return (recent if len(recent) else None), message
         note = ('Günlük mum çakışması bağımsız tarih sorgusuyla doğrulandı: ' + ', '.join(verified_dates)) if verified_dates else None
         return df.sort_values('datetime').reset_index(drop=True), note
