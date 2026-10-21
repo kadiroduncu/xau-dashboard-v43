@@ -1,5 +1,6 @@
 """Cloud-only read view. Collection and notifications run independently in Cloudflare."""
 from datetime import datetime, timezone
+import json
 import requests
 import streamlit as st
 from cloud_health import cloud_health
@@ -60,5 +61,17 @@ def panel():
     st.dataframe(state.get('history', []), use_container_width=True)
     with st.expander('Çalışma ve veri durumu'):
         st.json({'veri_hazır': state.get('data_ready'), 'motor_hazır': state.get('signal_engine_ready'), 'profil': state.get('profile'), 'hatalar': state.get('errors'), 'son_bildirim': state.get('delivery'), 'emir_iletimi': False})
+        # Explicit allowlist: never export relay URL/token, secrets or raw provider errors.
+        audit = {
+            'schema': 'xau-reference-audit-v1', 'checked_at': checked,
+            'profile': state.get('profile'),
+            'bars_5min': state.get('series', {}).get('5min', {}).get('bars', []),
+            'history': state.get('history', []),
+            'execution_quote': False,
+            'note': 'Referans sinyal ve mum arşivi; XM gerçekleşmiş işlem kaydı değildir.'}
+        st.download_button('Denetim verisini indir (JSON)',
+            json.dumps(audit, ensure_ascii=False, allow_nan=False),
+            file_name='xau-reference-audit.json', mime='application/json')
 panel()
+
 
