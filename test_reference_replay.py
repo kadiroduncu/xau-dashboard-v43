@@ -1,5 +1,5 @@
 import unittest
-from reference_replay import replay_reference, STEP
+from reference_replay import replay_reference, merge_reference_rows, STEP
 
 T = 1792555200000
 
@@ -49,5 +49,25 @@ class ReferenceReplayTests(unittest.TestCase):
 
     def test_invalid_or_inverted_signal_is_excluded(self):
         self.assertEqual(self.run_audit([bar()],[signal()|{'invalidation':105}])['counts'],{'invalid':1})
+
+    def test_rolling_window_does_not_erase_evidenced_outcome(self):
+        old=self.run_audit([bar(high=111)])['rows']
+        new=self.run_audit([bar(2)])
+        self.assertTrue(new['partial_history'])
+        self.assertEqual(new['bar_window_start'],T+2*STEP)
+        self.assertEqual(merge_reference_rows(old,new['rows']),old)
+
+    def test_conflicting_terminal_results_are_excluded(self):
+        old=self.run_audit([bar(high=111)])['rows']
+        new=self.run_audit([bar(low=94)])['rows']
+        merged=merge_reference_rows(old,new)
+        self.assertEqual(merged[0]['status'],'conflict')
+        self.assertIsNone(merged[0]['gross_price_distance'])
+        self.assertEqual(len(merged[0]['evidence']),2)
+
+    def test_unresolved_missing_row_not_assumed_still_open(self):
+        old=self.run_audit([bar()])['rows']
+        self.assertEqual(merge_reference_rows(old,[])[0]['status'],'incomplete')
+        with self.assertRaises(ValueError):merge_reference_rows([],old+old)
 
 if __name__=='__main__':unittest.main()

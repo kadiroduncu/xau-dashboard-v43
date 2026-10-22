@@ -74,6 +74,9 @@ def replay_reference(audit):
     delays = [r['delivery_delay_seconds'] for r in rows if 'delivery_delay_seconds' in r]
     gross = sum(r['gross_price_distance'] for r in closed)
     return {'schema': 'reference-first-barrier-v1', 'checked_at': audit.get('checked_at'),
+            'bar_window_start': bars[0]['open_at'] if bars else None,
+            'bar_window_end': bars[-1]['close_at'] if bars else None,
+            'partial_history': bool(counts['incomplete']),
             'total': len(rows), 'counts': dict(counts), 'resolved': len(closed),
             'target_rate': counts['target']/len(closed) if closed else None,
             'hypothetical_gross_price_distance': gross if closed else None,
@@ -84,3 +87,30 @@ def replay_reference(audit):
                     'Örtüşen bağımsız sinyaller portföy değildir. Spread/komisyon/slippage ve stop mumundaki '
                     'olay sırası eksik; net kâr, portföy düşüşü veya kesin MAE/MFE hesaplanmaz.',
             'rows': rows}
+
+
+def merge_reference_rows(previous, current):
+    """Keep prior evidenced outcomes when rolling candles expire; never overwrite them.
+
+    Inputs are audit result rows, not reconstructed signals. Persist the returned rows
+    in the existing maintenance archive. Conflicting evidence is excluded for review.
+    """
+    terminal = {'target', 'stop', 'ambiguous', 'conflict'}
+    merged = {r['id']: dict(r) for r in previous}
+    current_ids = set()
+    for row in current:
+        sid = row['id']
+        if sid in current_ids:
+            raise ValueError('Duplicate outcome ID')
+        current_ids.add(sid)
+        old = merged.get(sid)
+        if old and old['status'] in terminal:
+            if row['status'] in terminal and any(old.get(k) != row.get(k) for k in ('status', 'gross_price_distance')):
+                merged[sid] = dict(id=sid, status='conflict', gross_price_distance=None,
+                                  evidence=[old, dict(row)])
+        else:
+            merged[sid] = dict(row)
+    for sid, row in merged.items():
+        if sid not in current_ids and row['status'] not in terminal:
+            row.update(status='incomplete', gross_price_distance=None)
+    return list(merged.values())

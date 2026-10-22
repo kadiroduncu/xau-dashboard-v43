@@ -75,11 +75,13 @@ def panel():
         from reference_replay import replay_reference
         try:
             results = replay_reference(audit)
-            st.write('Referans sinyal sonuçları — varsayımsal kapanış girişi')
+            st.write('Mevcut mum penceresindeki sonuçlar — varsayımsal kapanış girişi')
             st.write({'kayıt': results['total'], 'sonuçlar': results['counts'],
                       'hedef_oranı': results['target_rate'],
                       'bildirim_gecikmesi_medyan_sn': results['median_delivery_delay_seconds']})
             st.caption(results['note'])
+            if results['partial_history']:
+                st.warning('Mum arşivi kayan bir penceredir. Eski mumlar çıktığında önceki sonuçlar burada yeniden doğrulanamaz; eksik kayıtlar bu orana dahil değildir. Bu oran tüm geçmişin başarı oranı değildir. Önceki doğrulanmış sonuçlar ayrı bakım denetim kayıtlarında korunur.')
         except (ValueError, TypeError, KeyError):
             st.warning('Sinyal sonucu için mum/kayıt biçimi doğrulanamadı; başarı oranı hesaplanmadı.')
 panel()
