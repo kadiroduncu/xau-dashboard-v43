@@ -105,7 +105,12 @@ def merge_reference_rows(previous, current):
         current_ids.add(sid)
         old = merged.get(sid)
         if old and old['status'] in terminal:
-            if row['status'] in terminal and any(old.get(k) != row.get(k) for k in ('status', 'gross_price_distance')):
+            old_gross, new_gross = old.get('gross_price_distance'), row.get('gross_price_distance')
+            # JSON decimal round-trips can differ by ~1e-13 in binary floats.
+            # Keep the original evidence; tolerate only sub-price-precision noise.
+            same_gross = (math.isclose(old_gross, new_gross, rel_tol=0, abs_tol=1e-8)
+                          if _number(old_gross) and _number(new_gross) else old_gross == new_gross)
+            if row['status'] in terminal and (old['status'] != row['status'] or not same_gross):
                 merged[sid] = dict(id=sid, status='conflict', gross_price_distance=None,
                                   evidence=[old, dict(row)])
         else:

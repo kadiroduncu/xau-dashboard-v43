@@ -70,4 +70,11 @@ class ReferenceReplayTests(unittest.TestCase):
         self.assertEqual(merge_reference_rows(old,[])[0]['status'],'incomplete')
         with self.assertRaises(ValueError):merge_reference_rows([],old+old)
 
+    def test_decimal_round_trip_is_not_conflicting_evidence(self):
+        old=[dict(id='x',status='stop',gross_price_distance=-2.67234)]
+        current=[dict(id='x',status='stop',gross_price_distance=-2.672339999999622)]
+        self.assertEqual(merge_reference_rows(old,current),old)
+        current[0]['gross_price_distance']=-2.67235
+        self.assertEqual(merge_reference_rows(old,current)[0]['status'],'conflict')
+
 if __name__=='__main__':unittest.main()
